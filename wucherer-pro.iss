@@ -116,6 +116,31 @@ begin
   end;
 end;
 
+function MakeDeviceKey: String;
+var
+  I: Integer;
+  Buf: Cardinal;
+begin
+  Result := '';
+  for I := 1 to 8 do
+  begin
+    Buf := 0;
+    if (SystemFunction036(Buf, 4) and $FF) = 0 then
+      RaiseException('Zufallsgenerator nicht verfuegbar');
+    Result := Result + Lowercase(IntToHex(Buf, 8));
+  end;
+end;
+
+function GetOrCreateDeviceKey: String;
+begin
+  if not RegQueryStringValue(HKLM64, 'Software\Wucherer.Pro', 'DeviceKey', Result) then
+  begin
+    Result := MakeDeviceKey();
+    if not RegWriteStringValue(HKLM64, 'Software\Wucherer.Pro', 'DeviceKey', Result) then
+      RaiseException('Geraeteschluessel konnte nicht gespeichert werden');
+  end;
+end;
+
 function GetEnrollmentToken: String;
 var
   SourceName, Prefix: String;
@@ -167,7 +192,7 @@ begin
     MsgBox('Dieser Installer kann nur über deinen persönlichen Einladungslink gestartet werden. Öffne bitte den Link aus der E-Mail und lade den Installer dort herunter.', mbError, MB_OK);
 end;
 
-function RegisterDevice(const Token, DeviceId, DeviceName, Password: String; var ErrorMessage: String): Boolean;
+function RegisterDevice(const Token, DeviceId, DeviceName, DeviceKey, Password: String; var ErrorMessage: String): Boolean;
 var
   Request: Variant;
   Payload: String;
@@ -176,14 +201,14 @@ begin
   ErrorMessage := '';
   if not IsValidEnrollmentToken(Token) then begin ErrorMessage := 'Der persönliche Installationslink ist ungültig oder abgelaufen.'; Exit; end;
   if (DeviceId = '') or (DeviceId = '(nicht lesbar)') then begin ErrorMessage := 'Die RustDesk-ID konnte nach der Installation nicht ausgelesen werden.'; Exit; end;
-  Payload := '{"enrollmentToken":"' + JsonEscape(Token) + '","rustdeskId":"' + JsonEscape(DeviceId) + '","name":"' + JsonEscape(DeviceName) + '","platform":"Windows","publicKey":null,"credential":"' + JsonEscape(Password) + '"}';
+  Payload := '{"enrollmentToken":"' + JsonEscape(Token) + '","rustdeskId":"' + JsonEscape(DeviceId) + '","deviceKey":"' + JsonEscape(DeviceKey) + '","name":"' + JsonEscape(DeviceName) + '","platform":"Windows","publicKey":null,"credential":"' + JsonEscape(Password) + '"}';
   try
     Request := CreateOleObject('WinHttp.WinHttpRequest.5.1');
     Request.SetTimeouts(10000, 10000, 30000, 30000);
     Request.Open('POST', ApiBaseUrl + '/v1/devices/register', False);
     Request.SetRequestHeader('Content-Type', 'application/json');
     Request.Send(Payload);
-    Result := (Request.Status = 201);
+    Result := (Request.Status = 200) or (Request.Status = 201);
     if not Result then ErrorMessage := 'Die Geräteanmeldung wurde vom Server abgelehnt (' + IntToStr(Request.Status) + ').';
   except
     ErrorMessage := 'Der Server konnte nicht erreicht werden.';
@@ -295,7 +320,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   i: Integer;
-  Exe, Pw, Id, IdFile, Token, HostName, RegistrationError: String;
+  Exe, Pw, Id, IdFile, Token, HostName, DeviceKey, RegistrationError: String;
   Registered: Boolean;
   S: AnsiString;
 begin
@@ -360,7 +385,10 @@ begin
     RegistrationError := 'Die RustDesk-ID konnte nach der Installation nicht ausgelesen werden.';
   end
   else
-    Registered := RegisterDevice(Token, Id, HostName, Pw, RegistrationError);
+  begin
+    DeviceKey := GetOrCreateDeviceKey();
+    Registered := RegisterDevice(Token, Id, HostName, DeviceKey, Pw, RegistrationError);
+  end;
   InstallSucceeded := Registered;
   if Registered then
     InstallSummary := 'Das Gerät wurde automatisch Ihrem Kundenkonto zugeordnet.' + #13#10#13#10 +
