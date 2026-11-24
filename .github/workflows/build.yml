@@ -1,0 +1,50 @@
+# Ablegen unter: .github/workflows/build.yml
+# Startet automatisch zweimal im Monat (am 1. und 15.) und manuell über: Actions > "build" > Run workflow
+# Ergebnis (feste Download-URL für Kunden):
+#   https://github.com/DevWuchte/wucherer-pro-installer/releases/latest/download/Wucherer-Pro.exe
+name: build
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wucherer-pro.iss'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 1,15 * *"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Aktuellen RustDesk-Installer laden
+        shell: pwsh
+        run: |
+          $rel = Invoke-RestMethod https://api.github.com/repos/rustdesk/rustdesk/releases/latest
+          $a = $rel.assets | Where-Object { $_.name -match '^rustdesk-[\d\.]+-x86_64\.exe$' } | Select-Object -First 1
+          if (-not $a) { throw "Kein x86_64.exe Asset gefunden" }
+          Invoke-WebRequest $a.browser_download_url -OutFile rustdesk.exe
+
+      - name: Revalia-Schriftart laden
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://raw.githubusercontent.com/google/fonts/main/ofl/revalia/Revalia-Regular.ttf" -OutFile Revalia-Regular.ttf
+
+      - name: Installer bauen
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" wucherer-pro.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC fehlgeschlagen" }
+
+      - name: Release veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Wucherer-Pro
+          files: output/Wucherer-Pro.exe
