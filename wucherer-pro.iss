@@ -116,6 +116,21 @@ begin
   end;
 end;
 
+function Hex32(Value: Cardinal): String;
+var
+  I, Digit: Integer;
+  HexDigits: String;
+begin
+  HexDigits := '0123456789abcdef';
+  Result := '';
+  for I := 1 to 8 do
+  begin
+    Digit := Integer(Value mod 16);
+    Result := HexDigits[Digit + 1] + Result;
+    Value := Value div 16;
+  end;
+end;
+
 function MakeDeviceKey: String;
 var
   I: Integer;
@@ -127,7 +142,7 @@ begin
     Buf := 0;
     if (SystemFunction036(Buf, 4) and $FF) = 0 then
       RaiseException('Zufallsgenerator nicht verfuegbar');
-    Result := Result + Lowercase(IntToHex(Buf, 8));
+    Result := Result + Hex32(Buf);
   end;
 end;
 
